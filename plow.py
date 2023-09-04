@@ -23,7 +23,7 @@ from collections import defaultdict
 # Local plot sources
 # For wildcards:
 #   SOURCES = glob.glob('/mnt/*')
-SOURCES = ['/mnt/n0/', '/mnt/n2/']
+SOURCES = []
 
 # Rsync destinations
 # Examples: ["/mnt/HDD1", "192.168.1.10::hdd1"]
