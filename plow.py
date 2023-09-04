@@ -14,6 +14,8 @@ import random
 import urllib.request
 import asyncio
 import aionotify
+import json
+import time
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
@@ -21,15 +23,17 @@ from collections import defaultdict
 # Local plot sources
 # For wildcards:
 #   SOURCES = glob.glob('/mnt/*')
-SOURCES = []
+SOURCES = ['/mnt/n0/', '/mnt/n2/']
 
 # Rsync destinations
 # Examples: ["/mnt/HDD1", "192.168.1.10::hdd1"]
+OLDDESTS = []
+#DESTS = ['nick@192.168.0.42:/mnt/chiastores/G/05']
 DESTS = []
 
 # Shuffle plot destinations. Useful when using many plotters to decrease the odds
 # of them copying to the same drive simultaneously.
-SHUFFLE = True 
+SHUFFLE = True
 
 # Rsync bandwidth limiting
 BWLIMIT = None
@@ -37,7 +41,7 @@ BWLIMIT = None
 # Optionally set the I/O scheduling class and priority
 IONICE = None  # "-c 3" for "idle"
 
-# Only send 1 plot at a time, regardless of source/dest. 
+# Only send 1 plot at a time, regardless of source/dest.
 ONE_AT_A_TIME = False
 
 # Each plot source can have a lock, so we don't send more than one file from
@@ -53,8 +57,6 @@ RSYNC_CMD = "rsync"
 if SHUFFLE:
     random.shuffle(DESTS)
 
-
-# Rsync parameters. For FAT/NTFS you may need to remove --preallocate
 if BWLIMIT:
     RSYNC_FLAGS = f"--remove-source-files --preallocate --whole-file --bwlimit={BWLIMIT}"
 else:
@@ -89,14 +91,15 @@ async def plotwatcher(paths, plot_queue, loop):
     await watcher.setup(loop)
     while True:
         event = await watcher.get_event()
+        print(event)
         if event.name.endswith(".plot"):
             plot_path = Path(event.alias) / event.name
             await plot_queue.put(plot_path)
 
 
 async def plow(dest, plot_queue, loop):
-    print(f"🧑‍🌾 plowing to {dest}")
-    while True:
+    print(f"<1F9D1><200D>🌾 plowing to {dest}")
+    while dest in DESTS:
         try:
             plot = await plot_queue.get()
             cmd = f"{RSYNC_CMD} {RSYNC_FLAGS} {plot} {dest}"
@@ -182,6 +185,22 @@ async def plow(dest, plot_queue, loop):
         except Exception as e:
             print(f"! {e}")
 
+async def loaddests():
+    while True:
+        try:
+            f = open('dests.json')
+            data = json.load(f)
+            if data['dests'] != DESTS:
+                OLDDESTS = DESTS
+                DESTS = data['dests']
+                for dest in DESTS:
+                    if dest not in OLDDESTS:
+                        futures.append(plow(dest, plot_queue, loop))
+            f.close()
+        except:
+            pass
+        asyncio.sleep(300)  # 300 seconds = 5 minutes
+
 
 async def main(paths, loop):
     plot_queue = asyncio.Queue()
@@ -191,8 +210,11 @@ async def main(paths, loop):
     futures.append(plotfinder(paths, plot_queue, loop))
 
     # Fire up a worker for each plow
-    for dest in DESTS:
-        futures.append(plow(dest, plot_queue, loop))
+    #for dest in DESTS:
+    #    futures.append(plow(dest, plot_queue, loop))
+    asyncio.run(loaddests())
+    while DESTS == []:
+        asyncio.sleep(5)
 
     print('🌱 Plow running...')
     await asyncio.gather(*futures)
